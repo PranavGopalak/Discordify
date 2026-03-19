@@ -1,0 +1,27 @@
+{
+  "name": "discordify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source local web app to bulk delete Discord messages, DMs, server messages, and exact message URLs without a browser extension",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "discord",
+    "discordify",
+    "discord message deleter",
+    "discord dm deleter",
+    "discord cleanup",
+    "bulk delete discord messages",
+    "delete discord dms",
+    "delete discord server messages",
+    "undiscord alternative",
+    "local web app"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  }
+}

@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>discordify</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body data-theme="linen">
+    <div class="page-shell">
+      <header class="hero">
+        <section class="hero-main">
+          <p class="eyebrow">Local Discord cleanup studio</p>
+          <h1>discordify</h1>
+          <p class="hero-text">
+            Clean up your own Discord history from one server, all servers, all DMs, or exact
+            message links without leaving <code>localhost</code>.
+          </p>
+          <div class="hero-chips">
+            <span class="chip">Local-only UI</span>
+            <span class="chip">Preview before delete</span>
+            <span class="chip">Saved local token vault</span>
+            <span class="chip">Themes and streamer mode</span>
+          </div>
+        </section>
+
+        <aside class="hero-status card">
+          <div class="status-toolbar">
+            <label class="field compact-field">
+              <span>Theme</span>
+              <select id="themePicker" class="input">
+                <option value="linen">Linen</option>
+                <option value="midnight">Midnight</option>
+                <option value="signal">Signal</option>
+                <option value="newsprint">Newsprint</option>
+              </select>
+            </label>
+
+            <label class="inline-check compact-toggle">
+              <input id="streamerModeToggle" type="checkbox">
+              <span>Streamer mode</span>
+            </label>
+          </div>
+
+          <div id="streamerBanner" class="streamer-banner" hidden>
+            Streamer mode is hiding tokens, IDs, target lists, and logs on screen.
+          </div>
+
+          <div class="status-row">
+            <span class="status-label">Session</span>
+            <span id="sessionBadge" class="pill neutral">Not validated</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Active job</span>
+            <span id="jobBadge" class="pill neutral">Idle</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Account</span>
+            <span id="accountBadge" class="status-value sensitive-value">No account loaded</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Current mode</span>
+            <span id="scopeBadge" class="status-value sensitive-value">Choose a delete flow below</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Server</span>
+            <span class="status-value">http://127.0.0.1:4782</span>
+          </div>
+          <button id="stopActiveJob" class="button secondary" type="button" disabled>Stop active job</button>
+        </aside>
+      </header>
+
+      <main class="dashboard">
+        <section class="planner-column">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="card-kicker">1. Session</p>
+                <h2>Validate your account locally</h2>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Discord authorization token</span>
+              <textarea
+                id="token"
+                class="input mono sensitive-field"
+                rows="3"
+                placeholder="Paste your Discord token. It stays in this browser unless you choose to save it."
+              ></textarea>
+            </label>
+
+            <div class="token-vault">
+              <div class="subpanel-header">
+                <div>
+                  <p class="mini-kicker">Local vault</p>
+                  <h3>Saved tokens</h3>
+                </div>
+                <span id="savedTokenCount" class="pill neutral">0 saved</span>
+              </div>
+
+              <div class="two-col">
+                <label class="field">
+                  <span>Saved token label</span>
+                  <input
+                    id="tokenLabel"
+                    class="input sensitive-field"
+                    type="text"
+                    placeholder="Example: main account"
+                  >
+                </label>
+
+                <div class="field">
+                  <span>Token actions</span>
+                  <div class="field-row">
+                    <button id="saveCurrentToken" class="button secondary" type="button">Save current token</button>
+                    <button id="forgetCurrentToken" class="button ghost" type="button">Forget saved copy</button>
+                  </div>
+                </div>
+              </div>
+
+              <p class="muted-copy">
+                Saved tokens stay in this browser's local storage. They are only sent to the server
+                when you validate or run a job with one loaded.
+              </p>
+
+              <div id="savedTokensList" class="token-list">
+                <div class="vault-empty">No saved tokens yet.</div>
+              </div>
+            </div>
+
+            <div class="two-col">
+              <label class="field">
+                <span>Author ID</span>
+                <div class="field-row">
+                  <input
+                    id="authorId"
+                    class="input mono sensitive-field"
+                    type="text"
+                    placeholder="Usually your own user ID"
+                  >
+                  <button id="useValidatedUser" class="button ghost" type="button">Use my ID</button>
+                </div>
+              </label>
+
+              <div class="field">
+                <span>Validation</span>
+                <div class="stack-actions">
+                  <button id="validateSession" class="button primary" type="button">Validate token</button>
+                  <p class="muted-copy">
+                    Leave the author ID blank only if you know exactly why. Most delete jobs should use
+                    your validated account ID.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="inline-tools">
+              <label class="inline-check">
+                <input id="rememberSettings" type="checkbox">
+                <span>Remember current token and planner values in this browser only</span>
+              </label>
+              <button id="clearSavedSettings" class="button ghost" type="button">Clear planner snapshot</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="card-kicker">2. Delete Mode</p>
+                <h2>Choose how you want to delete</h2>
+              </div>
+            </div>
+
+            <div class="workflow-switch" role="tablist" aria-label="Delete workflow">
+              <button id="bulkTab" class="switch-button active" type="button" data-workflow="bulk">Match and sweep</button>
+              <button id="directTab" class="switch-button" type="button" data-workflow="direct">Exact targets</button>
+            </div>
+
+            <section id="bulkPanel" class="workflow-panel">
+              <div class="mode-grid">
+                <button class="mode-card active" type="button" data-scope-mode="selected">
+                  <span class="mode-label">One server or custom DM list</span>
+                  <span class="mode-copy">Sweep one server, a selected channel batch, or a hand-picked DM list.</span>
+                </button>
+                <button class="mode-card" type="button" data-scope-mode="all-dms">
+                  <span class="mode-label">All DMs</span>
+                  <span class="mode-copy">Delete all or only matching messages across every DM and group DM.</span>
+                </button>
+                <button class="mode-card" type="button" data-scope-mode="all-servers">
+                  <span class="mode-label">All servers</span>
+                  <span class="mode-copy">Search every accessible server and remove all or only matching messages.</span>
+                </button>
+                <button class="mode-card" type="button" data-scope-mode="all-sources">
+                  <span class="mode-label">Everywhere</span>
+                  <span class="mode-copy">Run one job across all servers plus all DM conversations on the account.</span>
+                </button>
+              </div>
+
+              <div id="selectedScopeFields" class="scope-detail-block">
+                <div class="submode-switch" role="tablist" aria-label="Selected scope type">
+                  <button class="submode-button active" type="button" data-selected-kind="server">One server</button>
+                  <button class="submode-button" type="button" data-selected-kind="dm-list">Custom DM list</button>
+                </div>
+
+                <div id="serverFieldGroup" class="scope-fields">
+                  <label class="field">
+                    <span>Server ID</span>
+                    <div class="field-row">
+                      <input
+                        id="guildId"
+                        class="input mono sensitive-field"
+                        type="text"
+                        placeholder="Paste one server ID"
+                      >
+                      <button id="fetchGuildChannels" class="button ghost" type="button">Inspect server</button>
+                    </div>
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span id="channelIdsLabel">Specific channel IDs (optional)</span>
+                  <textarea
+                    id="channelIds"
+                    class="input mono sensitive-field"
+                    rows="4"
+                    placeholder="Leave blank to sweep every searchable channel in this server."
+                  ></textarea>
+                </label>
+
+                <div id="archiveImportRow" class="field" hidden>
+                  <span>Import Discord export index</span>
+                  <input id="archiveImport" class="input" type="file" accept=".json,application/json">
+                </div>
+
+                <div class="field">
+                  <span id="scopeLookupHeading">Scope helper</span>
+                  <div id="scopeLookupBox" class="lookup-box sensitive-block">
+                    Inspect a server to list channels here, or switch to Custom DM list to import <code>messages/index.json</code>.
+                  </div>
+                </div>
+              </div>
+
+              <div class="actions-row">
+                <button id="previewBulk" class="button ghost" type="button">Preview matches</button>
+                <button id="startBulkDelete" class="button danger" type="button">Start delete</button>
+              </div>
+            </section>
+
+            <section id="directPanel" class="workflow-panel" hidden>
+              <label class="field">
+                <span>Exact message targets</span>
+                <textarea
+                  id="directTargets"
+                  class="input mono sensitive-field"
+                  rows="12"
+                  placeholder="Paste Discord message URLs, channelId,messageId, or guildId,channelId,messageId"
+                ></textarea>
+              </label>
+
+              <div class="help-callout">
+                Exact-target deletes work across servers and DMs. Supported formats are full Discord
+                message URLs, <code>channelId,messageId</code>, or <code>guildId,channelId,messageId</code>.
+              </div>
+
+              <div class="actions-row">
+                <button id="startDirectDelete" class="button danger" type="button">Delete listed targets</button>
+              </div>
+            </section>
+          </article>
+
+          <article id="filtersCard" class="card">
+            <div class="card-header">
+              <div>
+                <p class="card-kicker">3. Filters</p>
+                <h2>Match only what you want</h2>
+              </div>
+              <button id="clearFilters" class="button ghost" type="button">Clear filters</button>
+            </div>
+
+            <div class="two-col">
+              <label class="field">
+                <span>Contains text</span>
+                <input id="content" class="input sensitive-field" type="text" placeholder="Leave blank to match everything in scope">
+              </label>
+
+              <label class="field">
+                <span>Regex filter</span>
+                <input id="pattern" class="input mono sensitive-field" type="text" placeholder="Optional JavaScript regex">
+              </label>
+            </div>
+
+            <div class="toggle-grid">
+              <label class="inline-check">
+                <input id="hasLink" type="checkbox">
+                <span>Links only</span>
+              </label>
+              <label class="inline-check">
+                <input id="hasFile" type="checkbox">
+                <span>Files / attachments only</span>
+              </label>
+              <label class="inline-check">
+                <input id="includePinned" type="checkbox">
+                <span>Include pinned messages</span>
+              </label>
+              <label class="inline-check">
+                <input id="includeNsfw" type="checkbox">
+                <span>Search NSFW channels</span>
+              </label>
+            </div>
+
+            <div class="two-col">
+              <label class="field">
+                <span>After date / ID</span>
+                <input id="minDate" class="input" type="datetime-local">
+              </label>
+
+              <label class="field">
+                <span>Before date / ID</span>
+                <input id="maxDate" class="input" type="datetime-local">
+              </label>
+            </div>
+
+            <p class="muted-copy">
+              Leave every filter blank to delete every one of your matching messages in the chosen scope.
+              Add any combination of text, regex, link, file, pinned, NSFW, or date filters to narrow it down.
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="card-kicker">4. Run Controls</p>
+                <h2>Throttle and retry behavior</h2>
+              </div>
+            </div>
+
+            <div class="three-col">
+              <label id="searchDelayField" class="field">
+                <span>Search delay (ms)</span>
+                <input id="searchDelay" class="input mono" type="number" min="100" max="120000" step="100" value="30000">
+              </label>
+
+              <label class="field">
+                <span>Delete delay (ms)</span>
+                <input id="deleteDelay" class="input mono" type="number" min="50" max="60000" step="50" value="300">
+              </label>
+
+              <label class="field">
+                <span>Retry attempts</span>
+                <input id="maxAttempt" class="input mono" type="number" min="1" max="10" step="1" value="2">
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Run note</span>
+              <input id="note" class="input" type="text" placeholder="Optional note saved with the activity log">
+            </label>
+          </article>
+        </section>
+
+        <aside class="activity-column">
+          <article class="card scope-card">
+            <div class="card-header">
+              <div>
+                <p class="card-kicker">Live Scope</p>
+                <h2 id="scopeTitle">One server or custom DM list</h2>
+              </div>
+            </div>
+
+            <p id="scopeDescription" class="scope-description">
+              Target a single server, a chosen channel batch, or a custom DM list. Preview first if you
+              are about to do a wide delete.
+            </p>
+
+            <div class="summary-grid">
+              <div class="summary-item">
+                <span class="summary-label">Workflow</span>
+                <strong id="scopeModeValue">Match and sweep</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Target</span>
+                <strong id="scopeTargetValue" class="sensitive-value">One server</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Filters</span>
+                <strong id="scopeFilterValue" class="sensitive-value">No filters set</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Guardrail</span>
+                <strong id="scopeSafetyValue">Preview recommended</strong>
+              </div>
+            </div>
+
+            <div id="scopeWarning" class="warning-block sensitive-block">
+              No filters are set yet, so the current plan would delete every matching message in the selected scope.
+            </div>
+          </article>
+
+          <article class="card activity-card">
+            <div class="card-header">
+              <div>
+                <p class="card-kicker">Activity</p>
+                <h2>Progress, counters, and logs</h2>
+              </div>
+            </div>
+
+            <div class="stats-grid">
+              <article class="stat">
+                <span class="stat-label">Deleted</span>
+                <strong id="deletedCount">0</strong>
+              </article>
+              <article class="stat">
+                <span class="stat-label">Failed</span>
+                <strong id="failedCount">0</strong>
+              </article>
+              <article class="stat">
+                <span class="stat-label">Matched</span>
+                <strong id="matchedCount">0</strong>
+              </article>
+              <article class="stat">
+                <span class="stat-label">Scanned</span>
+                <strong id="scannedCount">0</strong>
+              </article>
+              <article class="stat">
+                <span class="stat-label">Skipped</span>
+                <strong id="skippedCount">0</strong>
+              </article>
+              <article class="stat">
+                <span class="stat-label">Rate limits</span>
+                <strong id="throttledCount">0</strong>
+              </article>
+            </div>
+
+            <div class="progress-block">
+              <div class="progress-header">
+                <span id="progressTarget" class="sensitive-value">No job selected</span>
+                <span id="progressMeta">0 / 0</span>
+              </div>
+              <div class="progress-track">
+                <div id="progressBar" class="progress-fill"></div>
+              </div>
+              <div class="progress-footer">
+                <span id="elapsedLabel">Elapsed: 0h 0m 0s</span>
+                <span id="throttleLabel">Throttle: 0h 0m 0s</span>
+              </div>
+            </div>
+
+            <div id="logStream" class="log-stream sensitive-block">
+              <div class="log-empty">Job logs will appear here.</div>
+            </div>
+          </article>
+        </aside>
+      </main>
+    </div>
+
+    <template id="logTemplate">
+      <article class="log-entry">
+        <div class="log-top">
+          <span class="log-time"></span>
+          <span class="log-level"></span>
+        </div>
+        <p class="log-message"></p>
+        <pre class="log-meta"></pre>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
