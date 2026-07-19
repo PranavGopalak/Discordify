@@ -4,8 +4,6 @@
 
 If people are searching for a Discord message deleter, Discord DM deleter, Discord message cleaner, bulk delete Discord messages tool, or an Undiscord alternative that runs locally, this project is built for that workflow.
 
-Buy me a coffee: [Sponsor the project](https://paypal.me/Gopalakumaran)
-
 ## What discordify does
 
 - Bulk delete your own Discord messages in one server, all servers, all DMs, or across both at once.
@@ -90,12 +88,6 @@ For development with auto-restart:
 npm run dev
 ```
 
-## Support
-
-If `discordify` saves you time, you can support ongoing work here:
-
-- [Buy me a coffee / sponsor the project](https://paypal.me/Gopalakumaran)
-
 ## How it works
 
 1. Paste a Discord authorization token.
@@ -148,3 +140,4 @@ Yes. The project is designed to be published and easy to self-host locally.
 ## License
 
 `discordify` is licensed under the GNU General Public License v3.0. See [LICENSE](/C:/Users/prana/Documents/GitHub/undiscord-local-app/LICENSE).
+
