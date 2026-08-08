@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "application": "discordify",
+  "repository": "PranavGopalak/Discordify",
+  "developmentBranch": "codex-dev",
+  "productionBranch": "production",
+  "hostname": "discordify.pranavg.dev",
+  "origin": "http://127.0.0.1:3015",
+  "candidateOrigin": "http://127.0.0.1:3115",
+  "healthPath": "/__health",
+  "versionPath": "/__version",
+  "serviceLabel": "dev.pranavg.discordify",
+  "access": "cloudflare-account-members-only"
+}

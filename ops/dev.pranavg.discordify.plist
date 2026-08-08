@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.pranavg.discordify</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/pranav/.local/bin/node</string>
+    <string>--permission</string>
+    <string>--allow-fs-read=/Users/pranav/.local/share/discordify</string>
+    <string>--max-old-space-size=192</string>
+    <string>/Users/pranav/.local/share/discordify/current/server.mjs</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/pranav/.local/share/discordify/current</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>PORT</key>
+    <string>3015</string>
+    <key>DISCORDIFY_REVISION</key>
+    <string>__REVISION__</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>NetworkState</key>
+    <true/>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>Core</key>
+    <integer>0</integer>
+    <key>NumberOfFiles</key>
+    <integer>256</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>Core</key>
+    <integer>0</integer>
+    <key>NumberOfFiles</key>
+    <integer>512</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/pranav/Library/Logs/discordify.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/pranav/Library/Logs/discordify.error.log</string>
+</dict>
+</plist>
