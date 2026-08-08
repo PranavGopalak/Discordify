@@ -1,49 +1,18 @@
-const SETTINGS_KEY = 'discordify-settings-v4';
-const LEGACY_SETTINGS_KEYS = [
-  'discordify-settings-v3',
-  'discordify-settings-v2',
-  'discordify-settings-v1',
-  'undiscord-local-settings-v1',
-];
-const UI_PREFS_KEY = 'discordify-ui-prefs-v1';
-const TOKEN_LIBRARY_KEY = 'discordify-token-library-v1';
-const POLL_MS = 1200;
-const VALID_SCOPE_MODES = new Set(['selected', 'all-dms', 'all-servers', 'all-sources']);
-const VALID_WORKFLOWS = new Set(['bulk', 'direct']);
-const VALID_SELECTED_KINDS = new Set(['server', 'dm-list']);
-const VALID_THEMES = new Set(['linen', 'midnight', 'signal', 'newsprint']);
-const DEFAULT_SERVER_LOOKUP =
-  'Inspect a server to list channels here, or switch to Custom DM list to import <code>messages/index.json</code>.';
-const DEFAULT_DM_LOOKUP =
-  'Paste DM or group DM channel IDs, or import <code>messages/index.json</code> from your Discord data export.';
-const DEFAULT_GLOBAL_LOOKUP =
-  'Global modes load the reachable servers and DM conversations for this token automatically when the job starts.';
+const SETTINGS_KEY = 'discordify-settings-v5';
+const POLL_MS = 1000;
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
 const elements = {
-  body: document.body,
-  themePicker: document.querySelector('#themePicker'),
-  streamerModeToggle: document.querySelector('#streamerModeToggle'),
-  streamerBanner: document.querySelector('#streamerBanner'),
   token: document.querySelector('#token'),
-  tokenLabel: document.querySelector('#tokenLabel'),
-  saveCurrentToken: document.querySelector('#saveCurrentToken'),
-  forgetCurrentToken: document.querySelector('#forgetCurrentToken'),
-  savedTokensList: document.querySelector('#savedTokensList'),
-  savedTokenCount: document.querySelector('#savedTokenCount'),
-  rememberSettings: document.querySelector('#rememberSettings'),
-  clearSavedSettings: document.querySelector('#clearSavedSettings'),
+  tokenVisibility: document.querySelector('#tokenVisibility'),
   validateSession: document.querySelector('#validateSession'),
-  stopActiveJob: document.querySelector('#stopActiveJob'),
   sessionBadge: document.querySelector('#sessionBadge'),
-  jobBadge: document.querySelector('#jobBadge'),
   accountBadge: document.querySelector('#accountBadge'),
-  scopeBadge: document.querySelector('#scopeBadge'),
-  authorId: document.querySelector('#authorId'),
-  useValidatedUser: document.querySelector('#useValidatedUser'),
+  stopActiveJob: document.querySelector('#stopActiveJob'),
+  workflowButtons: Array.from(document.querySelectorAll('[data-workflow]')),
   bulkPanel: document.querySelector('#bulkPanel'),
   directPanel: document.querySelector('#directPanel'),
-  workflowButtons: Array.from(document.querySelectorAll('[data-workflow]')),
-  scopeButtons: Array.from(document.querySelectorAll('[data-scope-mode]')),
+  scopeMode: document.querySelector('#scopeMode'),
   selectedKindButtons: Array.from(document.querySelectorAll('[data-selected-kind]')),
   selectedScopeFields: document.querySelector('#selectedScopeFields'),
   serverFieldGroup: document.querySelector('#serverFieldGroup'),
@@ -63,24 +32,21 @@ const elements = {
   includeNsfw: document.querySelector('#includeNsfw'),
   minDate: document.querySelector('#minDate'),
   maxDate: document.querySelector('#maxDate'),
-  filtersCard: document.querySelector('#filtersCard'),
   clearFilters: document.querySelector('#clearFilters'),
-  searchDelayField: document.querySelector('#searchDelayField'),
+  filterSummary: document.querySelector('#filterSummary'),
   searchDelay: document.querySelector('#searchDelay'),
   deleteDelay: document.querySelector('#deleteDelay'),
   maxAttempt: document.querySelector('#maxAttempt'),
   note: document.querySelector('#note'),
+  rememberSettings: document.querySelector('#rememberSettings'),
   previewBulk: document.querySelector('#previewBulk'),
   startBulkDelete: document.querySelector('#startBulkDelete'),
   directTargets: document.querySelector('#directTargets'),
   startDirectDelete: document.querySelector('#startDirectDelete'),
   scopeTitle: document.querySelector('#scopeTitle'),
-  scopeDescription: document.querySelector('#scopeDescription'),
-  scopeModeValue: document.querySelector('#scopeModeValue'),
-  scopeTargetValue: document.querySelector('#scopeTargetValue'),
-  scopeFilterValue: document.querySelector('#scopeFilterValue'),
-  scopeSafetyValue: document.querySelector('#scopeSafetyValue'),
   scopeWarning: document.querySelector('#scopeWarning'),
+  activityTitle: document.querySelector('#activity-title'),
+  jobBadge: document.querySelector('#jobBadge'),
   deletedCount: document.querySelector('#deletedCount'),
   failedCount: document.querySelector('#failedCount'),
   matchedCount: document.querySelector('#matchedCount'),
@@ -97,137 +63,80 @@ const elements = {
 };
 
 const state = {
-  activeJobId: null,
+  workflow: 'bulk',
+  selectedKind: 'server',
   currentAccount: null,
   validatedToken: '',
+  activeJobId: null,
   pollHandle: null,
-  workflow: 'bulk',
-  scopeMode: 'selected',
-  selectedKind: 'server',
-  isBusy: false,
-  theme: 'linen',
-  streamerMode: false,
-  savedTokens: [],
-  selectedTokenId: '',
-  serverLookup: {
-    mode: 'html',
-    value: DEFAULT_SERVER_LOOKUP,
-  },
-  dmLookup: {
-    mode: 'html',
-    value: DEFAULT_DM_LOOKUP,
-  },
+  busy: false,
 };
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (character) => {
-    if (character === '&') return '&amp;';
-    if (character === '<') return '&lt;';
-    if (character === '>') return '&gt;';
-    if (character === '"') return '&quot;';
-    return '&#39;';
-  });
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
 }
 
-function setLookupContent(mode, value) {
-  if (mode === 'html') {
-    elements.scopeLookupBox.innerHTML = value;
-    return;
-  }
-
-  elements.scopeLookupBox.textContent = value;
+function setStatus(element, label, tone = 'neutral') {
+  element.textContent = label;
+  element.dataset.tone = tone;
 }
 
-function splitList(rawText) {
-  return String(rawText ?? '')
+function isConnected() {
+  return Boolean(
+    state.currentAccount &&
+    state.validatedToken &&
+    state.validatedToken === elements.token.value.trim()
+  );
+}
+
+function splitList(value) {
+  return String(value ?? '')
     .split(/[\s,]+/)
-    .map((value) => value.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
 }
 
-function countDirectTargets(rawText) {
-  return String(rawText ?? '')
+function countTargets() {
+  return String(elements.directTargets.value ?? '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean).length;
 }
 
-function createTokenId() {
-  if (window.crypto?.randomUUID) {
-    return window.crypto.randomUUID();
+function formatDuration(label) {
+  const match = String(label ?? '').match(/(\d+)h\s+(\d+)m\s+(\d+)s/);
+  if (!match) return label || '0m';
+  const [, hours, minutes, seconds] = match.map(Number);
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+async function api(path, body, method = 'POST') {
+  const response = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || payload.details || `Request failed (${response.status}).`);
   }
-
-  return `token-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return payload;
 }
 
-function buildAccountLabel(user) {
-  const primaryName = user.globalName || user.username || 'Saved account';
-  return user.username && user.globalName
-    ? `${primaryName} (${user.username})`
-    : primaryName;
-}
-
-function formatTimestamp(rawValue) {
-  const parsed = Date.parse(rawValue);
-  if (Number.isNaN(parsed)) return 'Unknown time';
-  return new Date(parsed).toLocaleString();
-}
-
-function readJsonStorage(keys) {
-  for (const key of keys) {
-    const raw = localStorage.getItem(key);
-    if (!raw) continue;
-
-    try {
-      return { key, value: JSON.parse(raw) };
-    } catch {
-      localStorage.removeItem(key);
-    }
-  }
-
-  return null;
-}
-
-function clearPlannerSettings() {
-  localStorage.removeItem(SETTINGS_KEY);
-  for (const key of LEGACY_SETTINGS_KEYS) {
-    localStorage.removeItem(key);
-  }
-}
-
-function writePlannerSettings() {
-  if (!elements.rememberSettings.checked) {
-    clearPlannerSettings();
-    return;
-  }
-
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(formValueMap()));
-}
-
-function writeUiPrefs() {
-  localStorage.setItem(
-    UI_PREFS_KEY,
-    JSON.stringify({
-      theme: state.theme,
-      streamerMode: state.streamerMode,
-    })
-  );
-}
-
-function saveTokenLibrary() {
-  localStorage.setItem(TOKEN_LIBRARY_KEY, JSON.stringify(state.savedTokens));
-}
-
-function formValueMap() {
+function plannerSnapshot() {
   return {
-    token: elements.token.value,
-    tokenLabel: elements.tokenLabel.value,
-    selectedTokenId: state.selectedTokenId,
-    authorId: elements.authorId.value,
     workflow: state.workflow,
-    scopeMode: state.scopeMode,
     selectedKind: state.selectedKind,
-    guildId: state.selectedKind === 'server' ? elements.guildId.value : '@me',
+    scopeMode: elements.scopeMode.value,
+    guildId: elements.guildId.value,
     channelIds: elements.channelIds.value,
     content: elements.content.value,
     pattern: elements.pattern.value,
@@ -241,755 +150,217 @@ function formValueMap() {
     deleteDelay: elements.deleteDelay.value,
     maxAttempt: elements.maxAttempt.value,
     note: elements.note.value,
-    directTargets: elements.directTargets.value,
-    rememberSettings: elements.rememberSettings.checked,
   };
 }
 
-function restorePlannerSettings() {
-  const stored = readJsonStorage([SETTINGS_KEY, ...LEGACY_SETTINGS_KEYS]);
-  if (!stored) return;
-
-  const saved = stored.value ?? {};
-
-  state.workflow = VALID_WORKFLOWS.has(saved.workflow) ? saved.workflow : 'bulk';
-  state.scopeMode = VALID_SCOPE_MODES.has(saved.scopeMode) ? saved.scopeMode : 'selected';
-
-  const inferredSelectedKind =
-    saved.selectedKind || (saved.guildId === '@me' ? 'dm-list' : 'server');
-  state.selectedKind = VALID_SELECTED_KINDS.has(inferredSelectedKind)
-    ? inferredSelectedKind
-    : 'server';
-
-  const shouldMigrateLegacyDeleteDelay =
-    stored.key !== SETTINGS_KEY &&
-    (saved.deleteDelay === undefined || saved.deleteDelay === null || String(saved.deleteDelay) === '1000');
-
-  elements.token.value = saved.token ?? '';
-  elements.tokenLabel.value = saved.tokenLabel ?? '';
-  state.selectedTokenId = typeof saved.selectedTokenId === 'string' ? saved.selectedTokenId : '';
-  elements.authorId.value = saved.authorId ?? '';
-  elements.guildId.value = saved.guildId && saved.guildId !== '@me' ? saved.guildId : '';
-  elements.channelIds.value = saved.channelIds ?? '';
-  elements.content.value = saved.content ?? '';
-  elements.pattern.value = saved.pattern ?? '';
-  elements.hasLink.checked = Boolean(saved.hasLink);
-  elements.hasFile.checked = Boolean(saved.hasFile);
-  elements.includePinned.checked = Boolean(saved.includePinned);
-  elements.includeNsfw.checked = Boolean(saved.includeNsfw);
-  elements.minDate.value = saved.minDate ?? '';
-  elements.maxDate.value = saved.maxDate ?? '';
-  elements.searchDelay.value = saved.searchDelay ?? '30000';
-  elements.deleteDelay.value = shouldMigrateLegacyDeleteDelay
-    ? '300'
-    : (saved.deleteDelay ?? '300');
-  elements.maxAttempt.value = saved.maxAttempt ?? '2';
-  elements.note.value = saved.note ?? '';
-  elements.directTargets.value = saved.directTargets ?? '';
-  elements.rememberSettings.checked = Boolean(saved.rememberSettings);
-
-  if (stored.key !== SETTINGS_KEY && saved.rememberSettings) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(formValueMap()));
-    localStorage.removeItem(stored.key);
-  }
-}
-
-function restoreUiPrefs() {
-  const stored = readJsonStorage([UI_PREFS_KEY]);
-  if (!stored) return;
-
-  const saved = stored.value ?? {};
-  state.theme = VALID_THEMES.has(saved.theme) ? saved.theme : 'linen';
-  state.streamerMode = Boolean(saved.streamerMode);
-}
-
-function restoreTokenLibrary() {
-  const stored = readJsonStorage([TOKEN_LIBRARY_KEY]);
-  if (!stored) return;
-
-  if (!Array.isArray(stored.value)) {
-    localStorage.removeItem(TOKEN_LIBRARY_KEY);
+function persistPlanner() {
+  if (!elements.rememberSettings.checked) {
+    localStorage.removeItem(SETTINGS_KEY);
     return;
   }
-
-  state.savedTokens = stored.value
-    .map((entry) => ({
-      id: typeof entry?.id === 'string' && entry.id ? entry.id : createTokenId(),
-      label: typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : 'Saved token',
-      token: typeof entry?.token === 'string' ? entry.token : '',
-      createdAt: typeof entry?.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
-      updatedAt: typeof entry?.updatedAt === 'string' ? entry.updatedAt : new Date().toISOString(),
-    }))
-    .filter((entry) => entry.token.trim());
-
-  saveTokenLibrary();
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(plannerSnapshot()));
 }
 
-function applyUiPrefs() {
-  elements.body.dataset.theme = state.theme;
-  elements.body.classList.toggle('streamer-mode', state.streamerMode);
-  elements.themePicker.value = state.theme;
-  elements.streamerModeToggle.checked = state.streamerMode;
-  elements.streamerBanner.hidden = !state.streamerMode;
-}
-
-function setPill(element, label, tone = 'neutral') {
-  element.textContent = label;
-  element.className = `pill ${tone}`;
-}
-
-function setDisabled(isBusy) {
-  state.isBusy = isBusy;
-  syncPlannerUi();
-}
-
-async function api(path, body, method = 'POST') {
-  const response = await fetch(path, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const reason = payload.error || payload.details || `Request failed with ${response.status}`;
-    throw new Error(reason);
-  }
-
-  return payload;
-}
-
-function invalidateValidatedSession(label = 'Needs validation') {
-  state.currentAccount = null;
-  state.validatedToken = '';
-  elements.accountBadge.textContent = 'No account loaded';
-  setPill(elements.sessionBadge, elements.token.value.trim() ? label : 'Not validated', 'neutral');
-}
-
-function renderGuildChannels(channels) {
-  if (!channels.length) {
-    state.serverLookup = {
-      mode: 'text',
-      value: 'No channels were returned for that server.',
-    };
-    refreshScopeLookup();
-    return;
-  }
-
-  state.serverLookup = {
-    mode: 'html',
-    value: channels
-      .map((channel) => {
-        const flags = [
-          channel.nsfw ? 'NSFW' : '',
-          channel.parentId ? `parent:${escapeHtml(channel.parentId)}` : '',
-        ]
-          .filter(Boolean)
-          .join(' | ');
-
-        return `
-          <div class="guild-line">
-            <strong>#${escapeHtml(channel.name || 'unnamed')}</strong>
-            <span class="mono">${escapeHtml(channel.id)}</span>
-            <span>${escapeHtml(flags || 'Text channel')}</span>
-          </div>
-        `;
-      })
-      .join(''),
-  };
-  refreshScopeLookup();
-}
-
-function renderLogs(logs) {
-  elements.logStream.innerHTML = '';
-
-  if (!logs || logs.length === 0) {
-    elements.logStream.innerHTML = '<div class="log-empty">Job logs will appear here.</div>';
-    return;
-  }
-
-  for (const log of logs) {
-    const fragment = elements.logTemplate.content.cloneNode(true);
-    fragment.querySelector('.log-time').textContent = new Date(log.timestamp).toLocaleTimeString();
-    fragment.querySelector('.log-level').textContent = log.level;
-    fragment.querySelector('.log-message').textContent = log.message;
-
-    const metaElement = fragment.querySelector('.log-meta');
-    if (log.meta !== undefined) {
-      metaElement.textContent =
-        typeof log.meta === 'string' ? log.meta : JSON.stringify(log.meta, null, 2);
-    } else {
-      metaElement.remove();
-    }
-
-    elements.logStream.appendChild(fragment);
-  }
-}
-
-function updateProgress(job) {
-  const processed = job.progress.deleted + job.progress.failed + job.progress.skipped;
-  const totalBase = Math.max(job.progress.totalEstimate, processed, job.progress.matched, 1);
-  const percent = Math.min(100, Math.round((processed / totalBase) * 100));
-  const queueLabel =
-    job.progress.queueSize > 0
-      ? `Target ${Math.max(job.progress.queueIndex, 0)} / ${job.progress.queueSize}`
-      : 'Target 0 / 0';
-
-  elements.deletedCount.textContent = String(job.progress.deleted);
-  elements.failedCount.textContent = String(job.progress.failed);
-  elements.matchedCount.textContent = String(job.progress.matched);
-  elements.scannedCount.textContent = String(job.progress.scanned);
-  elements.skippedCount.textContent = String(job.progress.skipped);
-  elements.throttledCount.textContent = String(job.stats.throttledCount);
-  elements.progressTarget.textContent = job.currentTarget || 'No current target';
-  elements.progressMeta.textContent = `${processed} / ${totalBase} | ${queueLabel}`;
-  elements.progressBar.style.width = `${percent}%`;
-  elements.elapsedLabel.textContent = `Elapsed: ${job.stats.elapsedLabel}`;
-  elements.throttleLabel.textContent = `Throttle: ${job.stats.throttledLabel}`;
-}
-
-function stopPolling() {
-  if (state.pollHandle) {
-    window.clearInterval(state.pollHandle);
-    state.pollHandle = null;
-  }
-}
-
-function applyJobState(job) {
-  state.activeJobId = job.id;
-  elements.stopActiveJob.disabled = !['queued', 'running', 'stopping'].includes(job.status);
-
-  if (job.status === 'completed') {
-    setPill(elements.jobBadge, 'Completed', 'good');
-  } else if (job.status === 'failed') {
-    setPill(elements.jobBadge, 'Failed', 'bad');
-  } else if (job.status === 'stopped') {
-    setPill(elements.jobBadge, 'Stopped', 'warn');
-  } else if (job.status === 'stopping') {
-    setPill(elements.jobBadge, 'Stopping', 'warn');
-  } else if (job.status === 'running') {
-    setPill(elements.jobBadge, 'Running', 'good');
-  } else {
-    setPill(elements.jobBadge, job.status, 'neutral');
-  }
-
-  updateProgress(job);
-  renderLogs(job.logs);
-
-  if (['completed', 'failed', 'stopped'].includes(job.status)) {
-    elements.stopActiveJob.disabled = true;
-    stopPolling();
-  }
-}
-
-async function pollJob() {
-  if (!state.activeJobId) return;
-
+function restorePlanner() {
+  const raw = localStorage.getItem(SETTINGS_KEY);
+  if (!raw) return;
   try {
-    const payload = await api(`/api/jobs/${state.activeJobId}`, undefined, 'GET');
-    applyJobState(payload.job);
-  } catch (error) {
-    stopPolling();
-    renderLogs([
-      {
-        timestamp: new Date().toISOString(),
-        level: 'error',
-        message: error.message,
-      },
-    ]);
-  }
-}
-
-function startPolling(jobId) {
-  state.activeJobId = jobId;
-  stopPolling();
-  state.pollHandle = window.setInterval(pollJob, POLL_MS);
-}
-
-function buildFilterSummary() {
-  const parts = [];
-
-  if (elements.content.value.trim()) {
-    parts.push(`text contains "${elements.content.value.trim().slice(0, 28)}"`);
-  }
-  if (elements.pattern.value.trim()) {
-    parts.push(`regex ${elements.pattern.value.trim().slice(0, 28)}`);
-  }
-  if (elements.hasLink.checked) parts.push('links only');
-  if (elements.hasFile.checked) parts.push('files only');
-  if (elements.includePinned.checked) parts.push('includes pinned');
-  if (elements.includeNsfw.checked) parts.push('NSFW on');
-  if (elements.minDate.value) parts.push(`after ${elements.minDate.value.replace('T', ' ')}`);
-  if (elements.maxDate.value) parts.push(`before ${elements.maxDate.value.replace('T', ' ')}`);
-
-  return parts.length > 0 ? parts.join(' | ') : 'No filters set';
-}
-
-function hasBroadDeleteShape() {
-  return !(
-    elements.content.value.trim() ||
-    elements.pattern.value.trim() ||
-    elements.hasLink.checked ||
-    elements.hasFile.checked ||
-    elements.minDate.value ||
-    elements.maxDate.value
-  );
-}
-
-function describeBulkTarget() {
-  const channelCount = splitList(elements.channelIds.value).length;
-
-  if (state.scopeMode === 'all-dms') {
-    return 'All reachable DM and group DM conversations';
-  }
-
-  if (state.scopeMode === 'all-servers') {
-    return 'All reachable servers on this account';
-  }
-
-  if (state.scopeMode === 'all-sources') {
-    return 'All reachable servers plus all DM conversations';
-  }
-
-  if (state.selectedKind === 'dm-list') {
-    return channelCount > 0 ? `${channelCount} custom DM channel(s)` : 'Custom DM list';
-  }
-
-  const guildId = elements.guildId.value.trim();
-  if (channelCount > 0) {
-    return guildId
-      ? `${channelCount} channel(s) inside server ${guildId}`
-      : `${channelCount} selected channel(s)`;
-  }
-
-  return guildId ? `All searchable channels in server ${guildId}` : 'One server';
-}
-
-function describeScopeCard() {
-  if (state.workflow === 'direct') {
-    return {
-      title: 'Exact targets',
-      description:
-        'Paste exact message URLs or channel/message IDs from any DM or server. Only those pasted targets will be deleted.',
+    const saved = JSON.parse(raw);
+    state.workflow = saved.workflow === 'direct' ? 'direct' : 'bulk';
+    state.selectedKind = saved.selectedKind === 'dm-list' ? 'dm-list' : 'server';
+    const values = {
+      scopeMode: saved.scopeMode,
+      guildId: saved.guildId,
+      channelIds: saved.channelIds,
+      content: saved.content,
+      pattern: saved.pattern,
+      minDate: saved.minDate,
+      maxDate: saved.maxDate,
+      searchDelay: saved.searchDelay,
+      deleteDelay: saved.deleteDelay,
+      maxAttempt: saved.maxAttempt,
+      note: saved.note,
     };
+    for (const [key, value] of Object.entries(values)) {
+      if (value !== undefined && elements[key]) elements[key].value = value;
+    }
+    for (const key of ['hasLink', 'hasFile', 'includePinned', 'includeNsfw']) {
+      elements[key].checked = Boolean(saved[key]);
+    }
+    elements.rememberSettings.checked = true;
+  } catch {
+    localStorage.removeItem(SETTINGS_KEY);
   }
-
-  if (state.scopeMode === 'all-dms') {
-    return {
-      title: 'All DMs',
-      description:
-        'Search every reachable DM and group DM. Leave filters blank to delete everything you authored there, or add filters to narrow the sweep.',
-    };
-  }
-
-  if (state.scopeMode === 'all-servers') {
-    return {
-      title: 'All servers',
-      description:
-        'Sweep every reachable server using one job. This is the fastest way to remove server history or to delete only matching messages across all servers.',
-    };
-  }
-
-  if (state.scopeMode === 'all-sources') {
-    return {
-      title: 'Everywhere',
-      description:
-        'Combine every reachable server with every reachable DM conversation. This gives you one cross-account sweep for matching messages.',
-    };
-  }
-
-  if (state.selectedKind === 'dm-list') {
-    return {
-      title: 'Custom DM list',
-      description:
-        'Run only on the DM or group DM channels you pasted or imported from messages/index.json.',
-    };
-  }
-
-  return {
-    title: 'One server or custom DM list',
-    description:
-      'Target a single server, a chosen channel batch, or a custom DM list. Preview first if you are about to do a wide delete.',
-  };
 }
 
-function getSafetySummary() {
-  if (state.workflow === 'direct') {
-    const targetCount = countDirectTargets(elements.directTargets.value);
-    return targetCount > 0 ? 'Deletes only the pasted targets' : 'Paste targets before deleting';
-  }
-
-  if (!elements.authorId.value.trim()) {
-    return 'Set your author ID before a live delete';
-  }
-
-  return hasBroadDeleteShape() ? 'Preview recommended' : 'Filtered delete';
+function filterLabels() {
+  const labels = [];
+  if (elements.content.value.trim()) labels.push('text');
+  if (elements.pattern.value.trim()) labels.push('regex');
+  if (elements.hasLink.checked) labels.push('links');
+  if (elements.hasFile.checked) labels.push('files');
+  if (elements.includePinned.checked) labels.push('pinned');
+  if (elements.includeNsfw.checked) labels.push('NSFW');
+  if (elements.minDate.value) labels.push('after date');
+  if (elements.maxDate.value) labels.push('before date');
+  return labels;
 }
 
-function getWarningText() {
-  if (state.workflow === 'direct') {
-    const targetCount = countDirectTargets(elements.directTargets.value);
-    return targetCount > 0
-      ? `Exact-target mode is armed for ${targetCount} line(s). Check the list carefully before deleting.`
-      : 'Paste at least one message URL or ID pair to use exact-target delete mode.';
+function scopeLabel() {
+  switch (elements.scopeMode.value) {
+    case 'all-dms': return 'All DMs';
+    case 'all-servers': return 'All servers';
+    case 'all-sources': return 'Everywhere';
+    default:
+      return state.selectedKind === 'dm-list' ? 'Custom DM list' : 'One server';
   }
-
-  if (!elements.token.value.trim()) {
-    return 'Validate your token before starting a delete job.';
-  }
-
-  if (!elements.authorId.value.trim()) {
-    return 'Author ID is blank. Searches may include messages you cannot delete. Using your validated user ID is the safest setup.';
-  }
-
-  if (state.scopeMode === 'selected' && state.selectedKind === 'server' && !elements.guildId.value.trim()) {
-    return 'Add a server ID, or switch to All DMs, All servers, or Everywhere.';
-  }
-
-  if (state.scopeMode === 'selected' && state.selectedKind === 'dm-list' && splitList(elements.channelIds.value).length === 0) {
-    return 'Paste DM channel IDs or import messages/index.json to build a custom DM list.';
-  }
-
-  if (hasBroadDeleteShape()) {
-    return `No text, file, link, or date filters are set. This will delete nearly every matching message you authored in ${describeBulkTarget().toLowerCase()}.`;
-  }
-
-  return 'Preview is the safest first pass before you run a live delete.';
 }
 
-function updateBulkActionLabel() {
-  if (state.workflow !== 'bulk') return;
-
-  const wideDelete = hasBroadDeleteShape();
-
-  if (state.scopeMode === 'all-dms') {
-    elements.startBulkDelete.textContent = wideDelete ? 'Delete all DMs' : 'Delete matching DMs';
-    return;
-  }
-
-  if (state.scopeMode === 'all-servers') {
-    elements.startBulkDelete.textContent = wideDelete
-      ? 'Delete all server messages'
-      : 'Delete matching server messages';
-    return;
-  }
-
-  if (state.scopeMode === 'all-sources') {
-    elements.startBulkDelete.textContent = wideDelete
-      ? 'Delete everything in scope'
-      : 'Delete matching messages everywhere';
-    return;
-  }
-
-  if (state.selectedKind === 'dm-list') {
-    elements.startBulkDelete.textContent = wideDelete
-      ? 'Delete this DM list'
-      : 'Delete matching messages in this DM list';
-    return;
-  }
-
-  elements.startBulkDelete.textContent = wideDelete ? 'Delete selected scope' : 'Delete matching messages';
+function hasValidBulkTarget() {
+  if (elements.scopeMode.value !== 'selected') return true;
+  if (state.selectedKind === 'server') return Boolean(elements.guildId.value.trim());
+  return splitList(elements.channelIds.value).length > 0;
 }
 
-function refreshScopeLookup() {
-  if (state.workflow !== 'bulk') {
-    elements.scopeLookupHeading.textContent = 'Format help';
-    setLookupContent(
-      'html',
-      'Direct mode accepts full Discord message URLs, <code>channelId,messageId</code>, or <code>guildId,channelId,messageId</code>.'
-    );
-    return;
-  }
-
-  if (state.scopeMode !== 'selected') {
-    elements.scopeLookupHeading.textContent = 'Global scope helper';
-    setLookupContent('text', DEFAULT_GLOBAL_LOOKUP);
-    return;
-  }
-
-  if (state.selectedKind === 'dm-list') {
-    elements.scopeLookupHeading.textContent = 'DM import helper';
-    setLookupContent(state.dmLookup.mode, state.dmLookup.value);
-    return;
-  }
-
-  elements.scopeLookupHeading.textContent = 'Server channels';
-  setLookupContent(state.serverLookup.mode, state.serverLookup.value);
+function refreshSummary() {
+  const filters = filterLabels();
+  const broad = filters.length === 0;
+  elements.filterSummary.textContent = broad
+    ? 'No filters, all of your messages in scope'
+    : filters.join(', ');
+  elements.scopeTitle.textContent = scopeLabel();
+  elements.scopeWarning.textContent = broad
+    ? 'All of your messages in this scope will match. Preview first.'
+    : `Filtered by ${filters.join(', ')}.`;
 }
 
-function updateScopeSummary() {
-  const cardDetails = describeScopeCard();
-  const directTargetCount = countDirectTargets(elements.directTargets.value);
-  const targetLabel = state.workflow === 'direct'
-    ? (directTargetCount > 0 ? `${directTargetCount} exact target line(s)` : 'Exact URLs or IDs')
-    : describeBulkTarget();
-
-  elements.scopeTitle.textContent = cardDetails.title;
-  elements.scopeDescription.textContent = cardDetails.description;
-  elements.scopeModeValue.textContent = state.workflow === 'bulk' ? 'Match and sweep' : 'Exact targets';
-  elements.scopeTargetValue.textContent = targetLabel;
-  elements.scopeFilterValue.textContent =
-    state.workflow === 'bulk'
-      ? buildFilterSummary()
-      : (directTargetCount > 0 ? `${directTargetCount} target line(s) ready` : 'No target lines pasted');
-  elements.scopeSafetyValue.textContent = getSafetySummary();
-  elements.scopeWarning.textContent = getWarningText();
-  elements.scopeBadge.textContent = targetLabel;
-  updateBulkActionLabel();
-}
-
-function isLoadedTokenEntry(entry) {
-  return elements.token.value.trim() && entry.token === elements.token.value.trim();
-}
-
-function renderTokenLibrary() {
-  elements.savedTokenCount.textContent = `${state.savedTokens.length} saved`;
-
-  if (state.savedTokens.length === 0) {
-    elements.savedTokensList.innerHTML = '<div class="vault-empty">No saved tokens yet.</div>';
-    return;
-  }
-
-  const sorted = state.savedTokens
-    .slice()
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-
-  elements.savedTokensList.innerHTML = sorted
-    .map((entry) => {
-      const isLoaded = isLoadedTokenEntry(entry);
-      const metaParts = [];
-
-      if (isLoaded) {
-        metaParts.push('Loaded in the editor');
-      }
-      metaParts.push(`Updated ${formatTimestamp(entry.updatedAt)}`);
-
-      return `
-        <article class="token-item ${isLoaded ? 'active' : ''}">
-          <div class="token-main">
-            <strong class="sensitive-value">${escapeHtml(entry.label)}</strong>
-            <span class="token-meta sensitive-value">${escapeHtml(metaParts.join(' | '))}</span>
-          </div>
-          <div class="token-actions">
-            <button class="button small secondary" type="button" data-token-action="load" data-token-id="${escapeHtml(entry.id)}">Load</button>
-            <button class="button small ghost" type="button" data-token-action="delete" data-token-id="${escapeHtml(entry.id)}">Delete</button>
-          </div>
-        </article>
-      `;
-    })
-    .join('');
-}
-
-function syncCurrentTokenState() {
-  const token = elements.token.value.trim();
-  const matchingEntry = state.savedTokens.find((entry) => entry.token === token) ?? null;
-
-  state.selectedTokenId = matchingEntry?.id ?? '';
-  if (matchingEntry && !elements.tokenLabel.value.trim()) {
-    elements.tokenLabel.value = matchingEntry.label;
-  }
-
-  if (token !== state.validatedToken) {
-    invalidateValidatedSession('Needs validation');
-  }
-
-  renderTokenLibrary();
-  updateScopeSummary();
-}
-
-function generateTokenLabel() {
-  if (elements.tokenLabel.value.trim()) {
-    return elements.tokenLabel.value.trim();
-  }
-
-  if (state.currentAccount) {
-    return buildAccountLabel(state.currentAccount);
-  }
-
-  if (elements.authorId.value.trim()) {
-    return `User ${elements.authorId.value.trim()}`;
-  }
-
-  return `Saved token ${state.savedTokens.length + 1}`;
-}
-
-function saveCurrentTokenLocally() {
-  const token = elements.token.value.trim();
-  if (!token) {
-    throw new Error('Paste a token before saving it locally.');
-  }
-
-  const label = generateTokenLabel();
-  const now = new Date().toISOString();
-  const selectedEntry = state.selectedTokenId
-    ? state.savedTokens.find((entry) => entry.id === state.selectedTokenId)
-    : null;
-  const matchingEntry = state.savedTokens.find((entry) => entry.token === token) ?? null;
-  const existingEntry = selectedEntry ?? matchingEntry;
-
-  if (existingEntry) {
-    existingEntry.label = label;
-    existingEntry.token = token;
-    existingEntry.updatedAt = now;
-    state.selectedTokenId = existingEntry.id;
-  } else {
-    const entry = {
-      id: createTokenId(),
-      label,
-      token,
-      createdAt: now,
-      updatedAt: now,
-    };
-    state.savedTokens.push(entry);
-    state.selectedTokenId = entry.id;
-  }
-
-  elements.tokenLabel.value = label;
-  saveTokenLibrary();
-  renderTokenLibrary();
-  writePlannerSettings();
-}
-
-function loadSavedToken(tokenId) {
-  const entry = state.savedTokens.find((item) => item.id === tokenId);
-  if (!entry) {
-    throw new Error('That saved token no longer exists.');
-  }
-
-  elements.token.value = entry.token;
-  elements.tokenLabel.value = entry.label;
-  state.selectedTokenId = entry.id;
-  invalidateValidatedSession('Loaded locally');
-  renderTokenLibrary();
-  updateScopeSummary();
-  writePlannerSettings();
-}
-
-function deleteSavedToken(tokenId) {
-  const entry = state.savedTokens.find((item) => item.id === tokenId);
-  if (!entry) {
-    throw new Error('That saved token no longer exists.');
-  }
-
-  if (!window.confirm(`Delete the saved token "${entry.label}" from this browser?`)) {
-    return;
-  }
-
-  state.savedTokens = state.savedTokens.filter((item) => item.id !== tokenId);
-  if (state.selectedTokenId === tokenId) {
-    state.selectedTokenId = '';
-  }
-
-  saveTokenLibrary();
-  renderTokenLibrary();
-  writePlannerSettings();
-}
-
-function forgetCurrentSavedToken() {
-  const token = elements.token.value.trim();
-  const entry = state.savedTokens.find((item) => item.id === state.selectedTokenId)
-    ?? state.savedTokens.find((item) => item.token === token)
-    ?? null;
-
-  if (!entry) {
-    throw new Error('The current token does not have a saved local copy to forget.');
-  }
-
-  deleteSavedToken(entry.id);
-}
-
-function syncPlannerUi() {
-  const bulkActive = state.workflow === 'bulk';
-  const selectedScopeActive = state.scopeMode === 'selected';
-  const serverSelected = state.selectedKind === 'server';
-
-  for (const button of elements.workflowButtons) {
-    button.classList.toggle('active', button.dataset.workflow === state.workflow);
-    button.disabled = state.isBusy;
-  }
-
-  for (const button of elements.scopeButtons) {
-    button.classList.toggle('active', button.dataset.scopeMode === state.scopeMode);
-    button.disabled = state.isBusy || !bulkActive;
+function refreshScopeUi() {
+  const selected = elements.scopeMode.value === 'selected';
+  const server = state.selectedKind === 'server';
+  elements.selectedScopeFields.hidden = !selected;
+  elements.serverFieldGroup.hidden = !server;
+  elements.archiveImportRow.hidden = server;
+  elements.channelIdsLabel.innerHTML = server
+    ? 'Channel IDs <small>optional</small>'
+    : 'DM or group DM channel IDs';
+  elements.channelIds.placeholder = server
+    ? 'Leave blank to search the whole server'
+    : 'Paste one channel ID per line';
+  elements.scopeLookupHeading.textContent = server ? 'Channel helper' : 'Import helper';
+  if (!server) {
+    elements.scopeLookupBox.innerHTML = '<strong>Custom DM list</strong><span>Paste channel IDs above, or import <code>messages/index.json</code>.</span>';
+  } else if (!elements.scopeLookupBox.querySelector('.guild-line')) {
+    elements.scopeLookupBox.innerHTML = '<strong>Channel helper</strong><span>Connect your account, add a server ID, then list its channels here.</span>';
   }
 
   for (const button of elements.selectedKindButtons) {
     button.classList.toggle('active', button.dataset.selectedKind === state.selectedKind);
-    button.disabled = state.isBusy || !bulkActive || !selectedScopeActive;
   }
+  refreshSummary();
+  refreshDisabled();
+}
 
-  elements.bulkPanel.hidden = !bulkActive;
-  elements.directPanel.hidden = bulkActive;
-  elements.filtersCard.hidden = !bulkActive;
-  elements.searchDelayField.hidden = !bulkActive;
-  elements.selectedScopeFields.hidden = !bulkActive || !selectedScopeActive;
-  elements.serverFieldGroup.hidden = !bulkActive || !selectedScopeActive || !serverSelected;
-  elements.archiveImportRow.hidden = !bulkActive || !selectedScopeActive || serverSelected;
+function refreshWorkflowUi() {
+  const bulk = state.workflow === 'bulk';
+  elements.bulkPanel.hidden = !bulk;
+  elements.directPanel.hidden = bulk;
+  for (const button of elements.workflowButtons) {
+    button.classList.toggle('active', button.dataset.workflow === state.workflow);
+  }
+  refreshDisabled();
+}
 
-  elements.channelIdsLabel.textContent = serverSelected
-    ? 'Specific channel IDs (optional)'
-    : 'DM or group DM channel IDs';
-  elements.channelIds.placeholder = serverSelected
-    ? 'Leave blank to sweep every searchable channel in this server.'
-    : 'Paste one DM or group DM channel ID per line, or import messages/index.json.';
+function refreshDisabled() {
+  const connected = isConnected();
+  const bulkReady = connected && hasValidBulkTarget() && !state.busy;
+  const directReady = connected && countTargets() > 0 && !state.busy;
 
-  elements.validateSession.disabled = state.isBusy;
-  elements.useValidatedUser.disabled = state.isBusy;
-  elements.clearSavedSettings.disabled = state.isBusy;
-  elements.fetchGuildChannels.disabled =
-    state.isBusy || !bulkActive || !selectedScopeActive || !serverSelected;
-  elements.previewBulk.disabled = state.isBusy || !bulkActive;
-  elements.startBulkDelete.disabled = state.isBusy || !bulkActive;
-  elements.startDirectDelete.disabled = state.isBusy || bulkActive;
-  elements.saveCurrentToken.disabled = state.isBusy;
-  elements.forgetCurrentToken.disabled = state.isBusy;
-  elements.clearFilters.disabled = state.isBusy || !bulkActive;
+  elements.validateSession.disabled = state.busy || !elements.token.value.trim();
+  elements.fetchGuildChannels.disabled = state.busy || !connected || !elements.guildId.value.trim();
+  elements.previewBulk.disabled = !bulkReady;
+  elements.startBulkDelete.disabled = !bulkReady;
+  elements.startDirectDelete.disabled = !directReady;
+  elements.stopActiveJob.disabled = !state.activeJobId;
+  elements.scopeMode.disabled = state.busy;
+  for (const button of [...elements.workflowButtons, ...elements.selectedKindButtons]) {
+    button.disabled = state.busy;
+  }
+}
 
-  refreshScopeLookup();
-  updateScopeSummary();
+function setBusy(busy) {
+  state.busy = busy;
+  refreshDisabled();
+}
+
+function invalidateConnection() {
+  state.currentAccount = null;
+  state.validatedToken = '';
+  elements.accountBadge.textContent = 'No account connected';
+  setStatus(elements.sessionBadge, elements.token.value.trim() ? 'Reconnect' : 'Not connected', 'neutral');
+  refreshDisabled();
 }
 
 async function validateToken() {
   const token = elements.token.value.trim();
-  if (!token) {
-    throw new Error('Paste a Discord token first.');
-  }
+  if (!token) throw new Error('Paste a Discord token first.');
 
-  setDisabled(true);
+  setBusy(true);
+  setStatus(elements.sessionBadge, 'Connecting', 'warn');
   try {
-    const payload = await api('/api/account/lookup', { token });
-    state.currentAccount = payload.user;
+    const { user } = await api('/api/account/lookup', { token });
+    state.currentAccount = user;
     state.validatedToken = token;
-    elements.accountBadge.textContent = `${payload.user.username} (${payload.user.id})`;
-    setPill(elements.sessionBadge, 'Validated', 'good');
-
-    if (!elements.authorId.value.trim()) {
-      elements.authorId.value = payload.user.id;
-    }
-
-    if (!elements.tokenLabel.value.trim()) {
-      elements.tokenLabel.value = buildAccountLabel(payload.user);
-    }
-
-    updateScopeSummary();
-    writePlannerSettings();
+    const name = user.globalName || user.username || user.id;
+    elements.accountBadge.textContent = `${name} · ${user.id}`;
+    setStatus(elements.sessionBadge, 'Connected', 'good');
   } catch (error) {
-    setPill(elements.sessionBadge, 'Invalid token', 'bad');
+    invalidateConnection();
+    setStatus(elements.sessionBadge, 'Connection failed', 'bad');
     throw error;
   } finally {
-    setDisabled(false);
+    setBusy(false);
+  }
+}
+
+function renderGuildChannels(channels) {
+  if (!channels.length) {
+    elements.scopeLookupBox.innerHTML = '<strong>No channels found</strong><span>Check the server ID and account access.</span>';
+    return;
+  }
+  elements.scopeLookupBox.innerHTML = channels.map((channel) => `
+    <span class="guild-line">
+      <strong>${escapeHtml(channel.name || 'unnamed')}</strong>
+      <code>${escapeHtml(channel.id)}</code>
+    </span>
+  `).join('');
+}
+
+async function fetchGuildChannels() {
+  const guildId = elements.guildId.value.trim();
+  if (!isConnected()) throw new Error('Connect the account first.');
+  if (!guildId) throw new Error('Add a server ID first.');
+  setBusy(true);
+  try {
+    const payload = await api('/api/guilds/channels', {
+      token: state.validatedToken,
+      guildId,
+    });
+    renderGuildChannels(payload.channels);
+  } finally {
+    setBusy(false);
   }
 }
 
 function buildBulkPayload(previewOnly) {
-  const payload = {
-    token: elements.token.value.trim(),
-    authorId: elements.authorId.value.trim(),
-    scopeMode: state.scopeMode,
-    guildId: '',
-    channelIds: '',
+  if (!isConnected()) throw new Error('Reconnect the account before starting.');
+  return {
+    token: state.validatedToken,
+    authorId: state.currentAccount.id,
+    scopeMode: elements.scopeMode.value,
+    guildId: elements.scopeMode.value === 'selected'
+      ? (state.selectedKind === 'dm-list' ? '@me' : elements.guildId.value.trim())
+      : '',
+    channelIds: elements.scopeMode.value === 'selected' ? elements.channelIds.value : '',
     content: elements.content.value.trim(),
     pattern: elements.pattern.value.trim(),
     hasLink: elements.hasLink.checked,
@@ -1004,145 +375,219 @@ function buildBulkPayload(previewOnly) {
     previewOnly,
     note: elements.note.value.trim(),
   };
-
-  if (state.scopeMode === 'selected') {
-    payload.guildId = state.selectedKind === 'dm-list' ? '@me' : elements.guildId.value.trim();
-    payload.channelIds = elements.channelIds.value;
-  }
-
-  return payload;
 }
 
-function confirmBulkDelete(payload) {
-  if (payload.previewOnly) return true;
-
+function confirmBulkDelete() {
+  const filters = filterLabels();
+  const detail = filters.length ? `Filters: ${filters.join(', ')}` : 'No filters are set.';
   return window.confirm(
-    `Start delete job?\n\n` +
-      `Workflow: Match and sweep\n` +
-      `Scope: ${describeBulkTarget()}\n` +
-      `Author ID: ${payload.authorId || '(blank)'}\n` +
-      `Filters: ${buildFilterSummary()}\n\n` +
-      `${getWarningText()}`
+    `Delete your matching messages from ${scopeLabel()}?\n\n${detail}\n\nThis cannot be undone.`
   );
 }
 
 async function startBulk(previewOnly) {
-  const bulkPayload = buildBulkPayload(previewOnly);
-  if (!confirmBulkDelete(bulkPayload)) return;
-
-  setDisabled(true);
+  if (!hasValidBulkTarget()) throw new Error('Complete the selected scope first.');
+  if (!previewOnly && !confirmBulkDelete()) return;
+  setBusy(true);
   try {
-    const payload = await api('/api/jobs/bulk', bulkPayload);
-    applyJobState(payload.job);
-    startPolling(payload.job.id);
-    await pollJob();
+    const { job } = await api('/api/jobs/bulk', buildBulkPayload(previewOnly));
+    applyJob(job);
+    startPolling(job.id);
   } finally {
-    setDisabled(false);
+    setBusy(false);
   }
 }
 
 async function startDirectDelete() {
-  const targetCount = countDirectTargets(elements.directTargets.value);
-  if (!targetCount) {
-    throw new Error('Paste at least one message target first.');
-  }
+  const targetCount = countTargets();
+  if (!isConnected()) throw new Error('Connect the account first.');
+  if (!targetCount) throw new Error('Add at least one message link or ID.');
+  if (!window.confirm(`Delete ${targetCount} exact message target${targetCount === 1 ? '' : 's'}?\n\nThis cannot be undone.`)) return;
 
-  if (!window.confirm(`Delete the ${targetCount} exact target line(s) currently listed?`)) {
-    return;
-  }
-
-  setDisabled(true);
+  setBusy(true);
   try {
-    const payload = await api('/api/jobs/direct', {
-      token: elements.token.value.trim(),
+    const { job } = await api('/api/jobs/direct', {
+      token: state.validatedToken,
       targetsText: elements.directTargets.value,
       deleteDelay: elements.deleteDelay.value,
       maxAttempt: elements.maxAttempt.value,
       note: elements.note.value.trim(),
     });
-    applyJobState(payload.job);
-    startPolling(payload.job.id);
-    await pollJob();
+    applyJob(job);
+    startPolling(job.id);
   } finally {
-    setDisabled(false);
+    setBusy(false);
   }
+}
+
+function renderLogs(logs) {
+  if (!logs?.length) {
+    elements.logStream.innerHTML = '<div class="log-empty">The job has started. Activity will appear here.</div>';
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const log of logs.slice(-80).reverse()) {
+    const node = elements.logTemplate.content.firstElementChild.cloneNode(true);
+    node.dataset.level = log.level;
+    node.querySelector('.log-message').textContent = log.message;
+    node.querySelector('.log-time').textContent = new Date(log.timestamp).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const meta = node.querySelector('.log-meta');
+    if (log.meta === undefined) {
+      meta.remove();
+    } else {
+      meta.textContent = typeof log.meta === 'string' ? log.meta : JSON.stringify(log.meta, null, 2);
+    }
+    fragment.append(node);
+  }
+  elements.logStream.replaceChildren(fragment);
+}
+
+function applyJob(job) {
+  const progress = job.progress ?? {};
+  const stats = job.stats ?? {};
+  const running = !TERMINAL_STATUSES.has(job.status);
+  state.activeJobId = running ? job.id : null;
+
+  const tone = job.status === 'completed'
+    ? 'good'
+    : job.status === 'failed'
+      ? 'bad'
+      : running
+        ? 'warn'
+        : 'neutral';
+  setStatus(elements.jobBadge, job.status.replaceAll('-', ' '), tone);
+  elements.activityTitle.textContent = job.kind === 'bulk' && job.config?.previewOnly
+    ? 'Preview activity'
+    : running
+      ? 'Deletion in progress'
+      : job.status === 'completed'
+        ? 'Run complete'
+        : 'Run finished';
+
+  elements.deletedCount.textContent = progress.deleted ?? 0;
+  elements.failedCount.textContent = progress.failed ?? 0;
+  elements.matchedCount.textContent = progress.matched ?? 0;
+  elements.scannedCount.textContent = progress.scanned ?? 0;
+  elements.skippedCount.textContent = progress.skipped ?? 0;
+  elements.throttledCount.textContent = stats.throttledCount ?? 0;
+  elements.progressTarget.textContent = job.currentTarget || job.currentAction || 'Finishing';
+
+  const queueIndex = progress.queueIndex ?? 0;
+  const queueSize = progress.queueSize ?? 0;
+  elements.progressMeta.textContent = queueSize ? `${queueIndex} / ${queueSize}` : `${progress.deleted ?? 0} deleted`;
+  const percentage = queueSize > 0
+    ? Math.min(100, Math.max(0, (queueIndex / queueSize) * 100))
+    : (job.status === 'completed' ? 100 : 0);
+  elements.progressBar.style.width = `${percentage}%`;
+  elements.elapsedLabel.textContent = `${formatDuration(stats.elapsedLabel)} elapsed`;
+  elements.throttleLabel.textContent = `${formatDuration(stats.throttledLabel)} waiting`;
+  renderLogs(job.logs);
+  refreshDisabled();
+}
+
+function stopPolling() {
+  if (state.pollHandle) window.clearInterval(state.pollHandle);
+  state.pollHandle = null;
+}
+
+async function pollJob() {
+  if (!state.activeJobId) return;
+  try {
+    const { job } = await api(`/api/jobs/${state.activeJobId}`, undefined, 'GET');
+    applyJob(job);
+    if (TERMINAL_STATUSES.has(job.status)) stopPolling();
+  } catch (error) {
+    stopPolling();
+    window.alert(error.message);
+  }
+}
+
+function startPolling(jobId) {
+  stopPolling();
+  state.activeJobId = jobId;
+  state.pollHandle = window.setInterval(pollJob, POLL_MS);
+  window.setTimeout(pollJob, 150);
 }
 
 async function stopActiveJob() {
   if (!state.activeJobId) return;
-  const payload = await api(`/api/jobs/${state.activeJobId}/stop`, {});
-  applyJobState(payload.job);
-}
-
-async function fetchGuildChannels() {
-  const token = elements.token.value.trim();
-  const guildId = elements.guildId.value.trim();
-  if (!token || !guildId) {
-    throw new Error('Add a token and a server ID first.');
-  }
-
-  setDisabled(true);
-  try {
-    const payload = await api('/api/guilds/channels', { token, guildId });
-    renderGuildChannels(payload.channels);
-  } finally {
-    setDisabled(false);
-  }
+  const { job } = await api(`/api/jobs/${state.activeJobId}/stop`, {});
+  applyJob(job);
 }
 
 async function importArchive(event) {
   const [file] = event.target.files;
   if (!file) return;
-
-  const rawText = await file.text();
-  const json = JSON.parse(rawText);
-  const channelIds = Object.keys(json);
-  state.workflow = 'bulk';
-  state.scopeMode = 'selected';
-  state.selectedKind = 'dm-list';
-  elements.channelIds.value = channelIds.join(',\n');
-  state.dmLookup = {
-    mode: 'text',
-    value: `Imported ${channelIds.length} DM or user channel ID(s) from messages/index.json.`,
-  };
-  syncPlannerUi();
-  writePlannerSettings();
+  const parsed = JSON.parse(await file.text());
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new Error('That file does not look like messages/index.json.');
+  }
+  const ids = Object.keys(parsed).filter((id) => /^\d+$/.test(id));
+  if (!ids.length) throw new Error('No DM channel IDs were found in that file.');
+  elements.channelIds.value = ids.join('\n');
+  elements.scopeLookupBox.innerHTML = `<strong>Import ready</strong><span>${ids.length} DM channel ID${ids.length === 1 ? '' : 's'} loaded.</span>`;
+  persistPlanner();
+  refreshDisabled();
 }
 
 function clearFilters() {
-  elements.content.value = '';
-  elements.pattern.value = '';
-  elements.hasLink.checked = false;
-  elements.hasFile.checked = false;
-  elements.includePinned.checked = false;
-  elements.includeNsfw.checked = false;
-  elements.minDate.value = '';
-  elements.maxDate.value = '';
-  writePlannerSettings();
-  updateScopeSummary();
+  for (const element of [elements.content, elements.pattern, elements.minDate, elements.maxDate]) {
+    element.value = '';
+  }
+  for (const element of [elements.hasLink, elements.hasFile, elements.includePinned, elements.includeNsfw]) {
+    element.checked = false;
+  }
+  persistPlanner();
+  refreshSummary();
 }
 
-function clearSaved() {
-  clearPlannerSettings();
-  elements.rememberSettings.checked = false;
-  writePlannerSettings();
+function handleError(action) {
+  return () => action().catch((error) => window.alert(error.message));
 }
 
-function applyTheme(theme) {
-  state.theme = VALID_THEMES.has(theme) ? theme : 'linen';
-  applyUiPrefs();
-  writeUiPrefs();
-}
+function bindEvents() {
+  elements.token.addEventListener('input', invalidateConnection);
+  elements.tokenVisibility.addEventListener('change', () => {
+    elements.token.type = elements.tokenVisibility.checked ? 'text' : 'password';
+  });
+  elements.validateSession.addEventListener('click', handleError(validateToken));
+  elements.fetchGuildChannels.addEventListener('click', handleError(fetchGuildChannels));
+  elements.previewBulk.addEventListener('click', handleError(() => startBulk(true)));
+  elements.startBulkDelete.addEventListener('click', handleError(() => startBulk(false)));
+  elements.startDirectDelete.addEventListener('click', handleError(startDirectDelete));
+  elements.stopActiveJob.addEventListener('click', handleError(stopActiveJob));
+  elements.archiveImport.addEventListener('change', (event) => {
+    importArchive(event).catch((error) => window.alert(error.message));
+  });
+  elements.clearFilters.addEventListener('click', clearFilters);
 
-function applyStreamerMode(enabled) {
-  state.streamerMode = Boolean(enabled);
-  applyUiPrefs();
-  writeUiPrefs();
-}
+  for (const button of elements.workflowButtons) {
+    button.addEventListener('click', () => {
+      state.workflow = button.dataset.workflow;
+      refreshWorkflowUi();
+      persistPlanner();
+    });
+  }
+  for (const button of elements.selectedKindButtons) {
+    button.addEventListener('click', () => {
+      state.selectedKind = button.dataset.selectedKind;
+      refreshScopeUi();
+      persistPlanner();
+    });
+  }
 
-function bindFieldEvents() {
-  const fieldsNeedingSummaryOnly = [
-    elements.authorId,
+  elements.scopeMode.addEventListener('change', () => {
+    refreshScopeUi();
+    persistPlanner();
+  });
+  elements.rememberSettings.addEventListener('change', persistPlanner);
+
+  const plannerFields = [
     elements.guildId,
     elements.channelIds,
     elements.content,
@@ -1158,144 +603,25 @@ function bindFieldEvents() {
     elements.maxAttempt,
     elements.note,
     elements.directTargets,
-    elements.rememberSettings,
-    elements.tokenLabel,
   ];
-
-  elements.token.addEventListener('input', () => {
-    syncCurrentTokenState();
-    writePlannerSettings();
-  });
-  elements.token.addEventListener('change', () => {
-    syncCurrentTokenState();
-    writePlannerSettings();
-  });
-
-  for (const field of fieldsNeedingSummaryOnly) {
-    field.addEventListener('input', () => {
-      writePlannerSettings();
-      updateScopeSummary();
-    });
-    field.addEventListener('change', () => {
-      writePlannerSettings();
-      updateScopeSummary();
-    });
-  }
-}
-
-function bindSavedTokenActions() {
-  elements.savedTokensList.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-token-action]');
-    if (!button) return;
-
-    const tokenId = button.getAttribute('data-token-id');
-    const action = button.getAttribute('data-token-action');
-
-    try {
-      if (action === 'load') {
-        loadSavedToken(tokenId);
-      } else if (action === 'delete') {
-        deleteSavedToken(tokenId);
-      }
-    } catch (error) {
-      window.alert(error.message);
+  for (const field of plannerFields) {
+    for (const eventName of ['input', 'change']) {
+      field.addEventListener(eventName, () => {
+        persistPlanner();
+        refreshSummary();
+        refreshDisabled();
+      });
     }
-  });
-}
-
-function bindEventHandlers() {
-  elements.themePicker.addEventListener('change', () => applyTheme(elements.themePicker.value));
-  elements.streamerModeToggle.addEventListener('change', () =>
-    applyStreamerMode(elements.streamerModeToggle.checked)
-  );
-
-  elements.validateSession.addEventListener('click', () =>
-    validateToken().catch((error) => window.alert(error.message))
-  );
-
-  elements.useValidatedUser.addEventListener('click', () => {
-    if (!state.currentAccount) return;
-    elements.authorId.value = state.currentAccount.id;
-    writePlannerSettings();
-    updateScopeSummary();
-  });
-
-  elements.saveCurrentToken.addEventListener('click', () => {
-    try {
-      saveCurrentTokenLocally();
-    } catch (error) {
-      window.alert(error.message);
-    }
-  });
-
-  elements.forgetCurrentToken.addEventListener('click', () => {
-    try {
-      forgetCurrentSavedToken();
-    } catch (error) {
-      window.alert(error.message);
-    }
-  });
-
-  elements.fetchGuildChannels.addEventListener('click', () =>
-    fetchGuildChannels().catch((error) => window.alert(error.message))
-  );
-  elements.previewBulk.addEventListener('click', () =>
-    startBulk(true).catch((error) => window.alert(error.message))
-  );
-  elements.startBulkDelete.addEventListener('click', () =>
-    startBulk(false).catch((error) => window.alert(error.message))
-  );
-  elements.startDirectDelete.addEventListener('click', () =>
-    startDirectDelete().catch((error) => window.alert(error.message))
-  );
-  elements.stopActiveJob.addEventListener('click', () =>
-    stopActiveJob().catch((error) => window.alert(error.message))
-  );
-  elements.archiveImport.addEventListener('change', (event) =>
-    importArchive(event).catch((error) => window.alert(error.message))
-  );
-  elements.clearSavedSettings.addEventListener('click', clearSaved);
-  elements.clearFilters.addEventListener('click', clearFilters);
-
-  for (const button of elements.workflowButtons) {
-    button.addEventListener('click', () => {
-      state.workflow = button.dataset.workflow;
-      syncPlannerUi();
-      writePlannerSettings();
-    });
   }
-
-  for (const button of elements.scopeButtons) {
-    button.addEventListener('click', () => {
-      state.scopeMode = button.dataset.scopeMode;
-      syncPlannerUi();
-      writePlannerSettings();
-    });
-  }
-
-  for (const button of elements.selectedKindButtons) {
-    button.addEventListener('click', () => {
-      state.selectedKind = button.dataset.selectedKind;
-      syncPlannerUi();
-      writePlannerSettings();
-    });
-  }
-
-  bindFieldEvents();
-  bindSavedTokenActions();
 }
 
 function init() {
-  restoreTokenLibrary();
-  restoreUiPrefs();
-  restorePlannerSettings();
-  bindEventHandlers();
-  applyUiPrefs();
-  setPill(elements.jobBadge, 'Idle', 'neutral');
-  renderTokenLibrary();
-  invalidateValidatedSession(elements.token.value.trim() ? 'Needs validation' : 'Not validated');
-  syncCurrentTokenState();
-  syncPlannerUi();
+  restorePlanner();
+  bindEvents();
+  invalidateConnection();
+  refreshWorkflowUi();
+  refreshScopeUi();
+  refreshSummary();
 }
 
 init();

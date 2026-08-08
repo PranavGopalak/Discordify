@@ -9,6 +9,10 @@ import { safeTrim } from './lib/helpers.mjs';
 
 const PORT = Number.parseInt(process.env.PORT ?? '4782', 10);
 const HOST = '127.0.0.1';
+const REVISION = safeTrim(process.env.DISCORDIFY_REVISION) || 'development';
+const MAX_BODY_BYTES = 1024 * 1024;
+const PUBLIC_HOST = 'discordify.pranavg.dev';
+const ALLOWED_HOSTS = new Set([PUBLIC_HOST, `127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
 const jobs = new JobManager();
@@ -21,10 +25,27 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
 };
 
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self'",
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+};
+
+function responseHeaders(extra = {}) {
+  return {
+    ...SECURITY_HEADERS,
+    'Cache-Control': 'no-store',
+    ...extra,
+  };
+}
+
 function sendJson(response, statusCode, payload) {
   const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
-    'Cache-Control': 'no-store',
+    ...responseHeaders(),
     'Content-Length': Buffer.byteLength(body),
     'Content-Type': 'application/json; charset=utf-8',
   });
@@ -33,7 +54,7 @@ function sendJson(response, statusCode, payload) {
 
 function sendText(response, statusCode, text, contentType = 'text/plain; charset=utf-8') {
   response.writeHead(statusCode, {
-    'Cache-Control': 'no-store',
+    ...responseHeaders(),
     'Content-Length': Buffer.byteLength(text),
     'Content-Type': contentType,
   });
@@ -42,7 +63,14 @@ function sendText(response, statusCode, text, contentType = 'text/plain; charset
 
 async function readJsonBody(request) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_BODY_BYTES) {
+      const error = new Error('Request body is too large.');
+      error.statusCode = 413;
+      throw error;
+    }
     chunks.push(chunk);
   }
 
@@ -70,7 +98,7 @@ async function serveStatic(response, pathname) {
     const content = await readFile(filePath);
     const ext = path.extname(filePath);
     response.writeHead(200, {
-      'Cache-Control': 'no-store',
+      ...responseHeaders(),
       'Content-Length': content.length,
       'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream',
     });
@@ -152,6 +180,21 @@ async function handleGuildLookup(response, body) {
 }
 
 async function routeApi(request, response, pathname) {
+  if (request.method === 'GET' && pathname === '/__health') {
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (request.method === 'GET' && pathname === '/__version') {
+    const requestHost = String(request.headers.host ?? '').toLowerCase();
+    if (requestHost === PUBLIC_HOST) {
+      sendJson(response, 404, { error: 'Not found.' });
+      return;
+    }
+    sendJson(response, 200, { revision: REVISION });
+    return;
+  }
+
   if (request.method === 'GET' && pathname === '/api/health') {
     sendJson(response, 200, { ok: true });
     return;
@@ -227,16 +270,33 @@ async function routeApi(request, response, pathname) {
 
 const server = createServer(async (request, response) => {
   try {
-    const url = new URL(request.url, `http://${request.headers.host ?? `${HOST}:${PORT}`}`);
+    const requestHost = String(request.headers.host ?? '').toLowerCase();
+    if (!ALLOWED_HOSTS.has(requestHost)) {
+      sendText(response, 421, 'Misdirected Request');
+      return;
+    }
 
-    if (url.pathname.startsWith('/api/')) {
+    const url = new URL(request.url, `http://${requestHost}`);
+
+    if (request.method === 'POST') {
+      const origin = safeTrim(request.headers.origin).toLowerCase();
+      const expectedOrigin = requestHost === PUBLIC_HOST
+        ? `https://${PUBLIC_HOST}`
+        : `http://${requestHost}`;
+      if (origin !== expectedOrigin) {
+        sendJson(response, 403, { error: 'Request origin was rejected.' });
+        return;
+      }
+    }
+
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__')) {
       await routeApi(request, response, url.pathname);
       return;
     }
 
     await serveStatic(response, url.pathname);
   } catch (error) {
-    sendJson(response, 500, {
+    sendJson(response, error?.statusCode ?? 500, {
       error: error instanceof Error ? error.message : 'Unexpected server error.',
     });
   }

@@ -150,6 +150,7 @@ test('an archived thread is reopened once and the message delete is retried', as
   assert.equal(snapshot.status, 'completed');
   assert.equal(snapshot.progress.deleted, 1);
   assert.equal(snapshot.progress.failed, 0);
+  assert.equal(job.payload.token, '');
   assert.equal(unarchiveCalls, 1);
   assert.equal(deleteCalls, 2);
 });
