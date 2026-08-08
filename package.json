@@ -22,6 +22,9 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "dev": "node --watch server.mjs"
+    "dev": "node --watch server.mjs",
+    "test": "node --test",
+    "check": "node --check server.mjs && node --check lib/discord-client.mjs && node --check lib/helpers.mjs && node --check lib/job-manager.mjs && node --check public/app.js",
+    "validate": "npm run check && npm test"
   }
 }
