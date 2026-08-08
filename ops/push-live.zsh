@@ -23,7 +23,7 @@ if git show-ref --verify --quiet refs/remotes/origin/production; then
   git merge-base --is-ancestor origin/production "$requested_revision"
 fi
 
-git push origin "$requested_revision:refs/heads/production"
+git push origin "${requested_revision}:refs/heads/production"
 git fetch origin production
 test "$requested_revision" = "$(git rev-parse origin/production)"
 
