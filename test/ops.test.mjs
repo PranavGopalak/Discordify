@@ -29,7 +29,9 @@ test('deployment scripts pass zsh syntax validation and preserve guarded branche
     execFileSync('zsh', ['-n', path.join(root, script)]);
   }
   const publisher = readFileSync(path.join(root, 'ops/push-live.zsh'), 'utf8');
+  const deployer = readFileSync(path.join(root, 'ops/deploy-local.zsh'), 'utf8');
   assert.match(publisher, /origin\/codex-dev/);
   assert.match(publisher, /\$\{requested_revision\}:refs\/heads\/production/);
   assert.doesNotMatch(publisher, /force|--force/);
+  assert.match(deployer, /pwd -P/);
 });

@@ -24,6 +24,7 @@ test -x "$runtime"
 plutil -lint "$launchagent_source" >/dev/null
 
 temporary_root="$(mktemp -d /tmp/discordify-deploy.XXXXXX)"
+temporary_root="$(cd "$temporary_root" && pwd -P)"
 candidate_dir="$temporary_root/candidate"
 candidate_log="$temporary_root/candidate.log"
 candidate_pid=""
