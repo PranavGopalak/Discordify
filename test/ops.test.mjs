@@ -34,4 +34,5 @@ test('deployment scripts pass zsh syntax validation and preserve guarded branche
   assert.match(publisher, /\$\{requested_revision\}:refs\/heads\/production/);
   assert.doesNotMatch(publisher, /force|--force/);
   assert.match(deployer, /pwd -P/);
+  assert.equal(deployer.match(/mv -f -h/g)?.length, 2);
 });

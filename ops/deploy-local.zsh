@@ -84,7 +84,7 @@ if [[ -L "$current_link" ]]; then
   previous_target="$(readlink "$current_link")"
 fi
 ln -s "$release_path" "$temporary_root/current"
-mv -f "$temporary_root/current" "$current_link"
+mv -f -h "$temporary_root/current" "$current_link"
 
 if [[ -f "$launchagent_path" ]]; then
   installed_plist_backup="$temporary_root/previous.plist"
@@ -114,7 +114,7 @@ if ! test "$(curl -fsS "http://127.0.0.1:$live_port/__version")" = "{\"revision\
   launchctl bootout "$service_target" >/dev/null 2>&1 || true
   if [[ -n "$previous_target" ]]; then
     ln -s "$previous_target" "$temporary_root/rollback-current"
-    mv -f "$temporary_root/rollback-current" "$current_link"
+    mv -f -h "$temporary_root/rollback-current" "$current_link"
   fi
   if [[ -n "$installed_plist_backup" ]]; then
     cp "$installed_plist_backup" "$launchagent_path"
