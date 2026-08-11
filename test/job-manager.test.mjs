@@ -186,3 +186,63 @@ test('Discord rate limit waits once for retry_after and then resumes', async () 
   assert.equal(snapshot.stats.throttledCount, 1);
   assert.deepEqual(waits, [200]);
 });
+
+test('permits only one active preview or deletion job at a time', async () => {
+  let searchCalls = 0;
+  const client = {
+    searchMessages(_query, signal) {
+      searchCalls += 1;
+      if (searchCalls > 1) {
+        return Promise.resolve(jsonResponse({ total_results: 0, messages: [] }));
+      }
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+  };
+  const manager = new JobManager({
+    clientFactory: () => client,
+    waitFn: async () => {},
+  });
+  const first = manager.createBulkJob(bulkPayload());
+  while (searchCalls === 0) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.throws(
+    () => manager.createBulkJob(bulkPayload()),
+    (error) => error.statusCode === 409 && /already running/i.test(error.message)
+  );
+
+  first.stop();
+  await first.runPromise;
+  assert.equal(first.snapshot().status, 'stopped');
+  const afterStop = manager.createBulkJob(bulkPayload());
+  await afterStop.runPromise;
+  assert.equal(afterStop.snapshot().status, 'completed');
+});
+
+test('retains no more than fifty finished jobs', async () => {
+  const manager = new JobManager({
+    clientFactory: () => ({
+      deleteMessage: () => Promise.resolve(emptyResponse()),
+    }),
+    waitFn: async () => {},
+  });
+
+  for (let index = 0; index < 51; index += 1) {
+    const job = manager.createDirectJob({
+      token: 'test-token',
+      targets: [{
+        channelId: `channel-${index}`,
+        messageId: `message-${index}`,
+        guildId: 'guild-1',
+      }],
+      deleteDelay: 50,
+      maxAttempt: 1,
+    });
+    await job.runPromise;
+  }
+
+  assert.equal(manager.listJobs().length, 50);
+});

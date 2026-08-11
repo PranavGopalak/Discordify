@@ -11,6 +11,10 @@ const PORT = Number.parseInt(process.env.PORT ?? '4782', 10);
 const HOST = '127.0.0.1';
 const REVISION = safeTrim(process.env.DISCORDIFY_REVISION) || 'development';
 const MAX_BODY_BYTES = 1024 * 1024;
+const REQUEST_TIMEOUT_MS = Math.min(
+  5000,
+  Math.max(100, Number.parseInt(process.env.DISCORDIFY_REQUEST_TIMEOUT_MS ?? '5000', 10) || 5000)
+);
 const PUBLIC_HOST = 'discordify.pranavg.dev';
 const ALLOWED_HOSTS = new Set([PUBLIC_HOST, `127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -234,7 +238,7 @@ async function routeApi(request, response, pathname) {
       const job = jobs.createBulkJob(body);
       sendJson(response, 201, { job: job.snapshot() });
     } catch (error) {
-      sendJson(response, 400, {
+      sendJson(response, error?.statusCode ?? 400, {
         error: error instanceof Error ? error.message : 'Unable to create bulk job.',
       });
     }
@@ -246,7 +250,7 @@ async function routeApi(request, response, pathname) {
       const job = jobs.createDirectJob(body);
       sendJson(response, 201, { job: job.snapshot() });
     } catch (error) {
-      sendJson(response, 400, {
+      sendJson(response, error?.statusCode ?? 400, {
         error: error instanceof Error ? error.message : 'Unable to create direct delete job.',
       });
     }
@@ -268,7 +272,12 @@ async function routeApi(request, response, pathname) {
   sendJson(response, 404, { error: 'Unknown API route.' });
 }
 
-const server = createServer(async (request, response) => {
+const server = createServer({
+  requestTimeout: REQUEST_TIMEOUT_MS,
+  headersTimeout: REQUEST_TIMEOUT_MS,
+  keepAliveTimeout: 5000,
+  connectionsCheckingInterval: Math.min(1000, REQUEST_TIMEOUT_MS),
+}, async (request, response) => {
   try {
     const requestHost = String(request.headers.host ?? '').toLowerCase();
     if (!ALLOWED_HOSTS.has(requestHost)) {

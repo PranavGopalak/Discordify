@@ -40,6 +40,33 @@ function request(pathname, options = {}) {
   });
 }
 
+function slowBodyRequest() {
+  return new Promise((resolve, reject) => {
+    const clientRequest = http.request({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/api/account/lookup',
+      method: 'POST',
+      headers: {
+        Host: `127.0.0.1:${TEST_PORT}`,
+        Origin: `http://127.0.0.1:${TEST_PORT}`,
+        'Content-Type': 'application/json',
+        'Content-Length': '100',
+      },
+    }, (response) => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode));
+    });
+    const timeout = setTimeout(() => {
+      clientRequest.destroy();
+      reject(new Error('Slow request was not bounded.'));
+    }, 2000);
+    clientRequest.on('error', reject);
+    clientRequest.on('close', () => clearTimeout(timeout));
+    clientRequest.write('{');
+  });
+}
+
 before(async () => {
   serverProcess = spawn(process.execPath, ['server.mjs'], {
     cwd: projectRoot,
@@ -47,6 +74,7 @@ before(async () => {
       ...process.env,
       PORT: String(TEST_PORT),
       DISCORDIFY_REVISION: 'test-revision',
+      DISCORDIFY_REQUEST_TIMEOUT_MS: '150',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -106,4 +134,8 @@ test('unknown hosts and cross-origin writes are rejected before routing', async 
   });
   assert.equal(sameOrigin.status, 400);
   assert.match(JSON.parse(sameOrigin.body).error, /token is required/i);
+});
+
+test('closes a request body that does not finish within the deadline', async () => {
+  assert.equal(await slowBodyRequest(), 408);
 });
